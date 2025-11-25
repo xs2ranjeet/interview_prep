@@ -31,3 +31,49 @@ Input: Large 'n' where sequence length is high and constraints make many paths i
 Expected Output: All valid sequences, should handle pruning early
 
 '''
+from typing import List
+
+def generate_sequences(n, constraints) -> List[List[int]] :
+    if n == 0:
+        return []
+    values = [i for i in range(1, n+1)]
+    used = set()
+    seq = []
+    result = []
+
+    def backtrack(index: int) :
+        if index == n:
+            result.append(seq.copy())
+            return
+        
+        for val in values:
+            if val in used:
+                continue
+            if not constraints(index, val):
+                continue
+            used.add(val)
+            seq.append(val)
+            backtrack(index +1)
+            used.remove(val)
+            seq.pop()
+
+    backtrack(0)
+    return result
+
+def constraint_exclude_2_at_index_1(i, v):
+    if i == 1 and v == 2:
+        return False
+    return True
+
+def allow_all(i, v):
+    return True
+
+
+# Test Case 1: all permutations for n=3
+print("Test 1:", generate_sequences(3, allow_all))
+
+# Test Case 2: disallow 2 at index 1
+print("Test 2:", generate_sequences(3, constraint_exclude_2_at_index_1))
+
+# Test Case 3: n = 0
+print("Test 3:", generate_sequences(0, allow_all))

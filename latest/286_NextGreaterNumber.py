@@ -22,3 +22,20 @@ Note:
 The input array contains distinct integers.
 If there is no greater element to the right of an element, consider it as -1.
 '''
+
+from typing import List
+
+def nextGreaterNumber(nums: List[int]) -> List[int]:
+    n = len(nums)
+    result = [-1] *n
+    stack = []
+    for i in range(n):
+        while stack and nums[stack[-1]] <= nums[i]:
+            index = stack[-1]
+            stack.pop()
+            result[index] = nums[i]
+        stack.append(i)
+    return result
+
+nums = [4, 6, 3, 2, 8, 1]
+print(f"{nextGreaterNumber(nums)}")

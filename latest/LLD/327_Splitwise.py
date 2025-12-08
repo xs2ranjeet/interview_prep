@@ -1,6 +1,7 @@
 '''
 327. Design Expense Sharing App Like Splitwise
 System DesignLow-Level Design (LLD)Object-Oriented ProgrammingClean CodingMachine Coding Round
+https://enginebogie.com/interview/experience/salesforce-software-engineer/676
 Medium
 Create an expense sharing application like Splitwise. An expense sharing application is where you can add your expenses and split it among different people. The app keeps balances between people as in who owes how much to whom.
 

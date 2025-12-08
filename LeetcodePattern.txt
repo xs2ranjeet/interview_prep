@@ -1,0 +1,735 @@
+1. prefix sum:
+vector<int> pre(n+1, 0);
+for(int i = 1; i <= n; i++) {
+    pre[i] = pre[i-1] + nums[i-1];
+    
+}
+Given an array nums, answer multiple queries about the sum of elements within a specific range [i, j].
+
+Example:
+
+Input: nums = [1, 2, 3, 4, 5, 6], i = 1, j = 3
+pre[] = [0,1,3,6,10,15,21];
+
+Output: 9
+
+pre[j+1] - pre[i] 
+pre[4] - pre[1]
+
+525_Contingius Array
+Given a binary array nums, return the maximum length of a contiguous subarray with an equal number of 0 and 1.
+nums = [0,1,1,1,1,1,0,0,0]
+unordered_map<int,int> mp;
+for(int i = 0; i < n; i++) {
+    cursum += (num == 0)? -1 : 1;
+    if(cursum ==0)
+        maxlen = max(maxlen, i+1);
+    else if(mp.count(cursum) == 0)
+        mp[cursum] = i;
+    else
+        maxlen = max(maxlen, i - mp[cursum]);
+}
+returm maxlen;
+
+560_ subarray sum equals k
+nums = [1, 2, 3, 4, 5, 6], k = 5
+unorderd_map<int, int> prefixSum;
+prefixSum[0] = 1;
+for(auto& num : nums) {
+    sum += num;
+    int diff = sum  - k;
+    if(prefixSum.count(diff) > 0)
+        res += prefixSum[diff];
+    prefixSum[sum]++;
+}
+
+-------------------------------------------------
+Two Pointers
+Two Sum II - Input Array is Sorted (LeetCode #167)
+
+Find two numbers in a sorted array that add up to a target value.
+
+Example:
+
+Input: nums = [1, 2, 3, 4, 6], target = 6
+
+Output: [1, 3]
+left = 0, right = n-1;
+while(left < right) {
+    sum = nums[left] + nums[right];
+    if(sum == target){
+        return {left, right};
+    }
+    else if (sum > target)
+        right--;
+    else 
+        left++;
+    
+}
+
+
+3Sum (LeetCode #15)
+nums = [-1,0,1,2,-1,-4]
+vector<vector<int>> threeSum(vector<int>& nums) {
+    sort(nums.begin(), nums.end());
+    vector<vector<int>> res;
+    for(int i = 0; i < n-2; i++) {
+        if(i > 0 and nums[i] == nums[i-1])
+            continue;
+        j = i+1, k = n-1;
+        int sum = - nums[i];
+        while(j < k) {
+            int reqSum = nums[i] +nums[j]+ nums[k];
+            if(reqSum == 0) {
+                res.push_back({i, j, k});
+                while(j < k and nums[j] == nums[j+1])
+                    j++;
+                while(j < k and nums[k] == nums[k-1])
+                    k--;
+                j++, k--;
+            } else if reqSum > 0{
+                k--;
+
+            } else {
+                j++;
+            }
+        }
+    }
+}
+
+Container With Most Water (LeetCode #11) https://leetcode.com/problems/container-with-most-water/description/
+int maxArea(vector<int>& height) {
+    int maxHeight = 0;
+    left = 0, right = height.size() - 1;
+    while(left < right) {
+        leftHt = height[left], rightHt = height[right];
+        maxHeight = max(maxheight, min(leftht, rightht) * (right - left ));
+        if(leftHt < rightHt)
+            left++;
+        else
+            right--;
+    }
+}
+
+-------------------------------------------------
+3. Sliding Window
+Find the maximum sum of a subarray of size k.
+
+Example:
+
+Input: nums = [2, 1, 5, 1, 3, 2], k = 3
+
+Output: 9
+int msxSumSubarray(vector<int> &nums) {
+    int left = 0, right = 0, n  = nums.size();
+    int maxSum = 0;
+    while(right < n) {
+        cursum += nums[right];
+        if(right - left +1 == k) {
+            maxSum = max(maxSum, curSum);
+            curSum -= nums[left];
+            left++;
+        }
+        right++;
+    }
+}
+
+Maximum Average Subarray I (LeetCode #643)
+class Solution {
+public:
+    double findMaxAverage(vector<int>& nums, int k) {
+        int left = 0, right = 0, n  = nums.size();
+    double maxAvg= 0;
+
+    while(right < n) {
+        cursum += nums[right];
+        if(right - left +1 == k) {
+            maxAvg = max(maxAvg, curSum /k);
+            curSum -= nums[left];
+            left++;
+        }
+        right++;
+    }
+    }
+};
+
+644. Maximum Average Subarray II
+You are given an integer array nums consisting of n elements, and an integer k.
+
+Find a contiguous subarray whose length is greater than or equal to k that has the maximum average value and return this value. Any answer with a calculation error less than 10-5 will be accepted.
+
+Input: nums = [1,12,-5,-6,50,3], k = 4
+
+[0, 1, 13, 8,2,52, 55]
+2, 53
+Output: 12.75000
+BS and prefixSum
+class Solution {
+public:
+Brute force
+    double findMaxAverage(vector<int>& nums, int k) {
+        int n = nums.size();
+        vector<int> pf(n, 0);
+        for(int i = 0; i < n; i++) {
+            pf[i+1] = pf[i] + nums[i];
+        }
+        interval = k
+        for(interval = k, interval < n; interval++) {
+        for(int i = interval; i < n; i++) {
+            int sum = pf[i] - pf[i-k];
+            maxAvg = max(maxAvg, sum/ interval )
+        }
+        }
+    }
+};
+double findMaxAverage(vector<int>& nums, int k) {
+    doubel L = *min_element(nums.begin(), nums.end());
+    double R = *max_element(nums.begin(), nums.end());
+    doube eps = 1e-5;
+
+
+    auto feasible = [&](int mid) -> bool {
+    int n = nums.size();
+    vector<int> prefixSum(n+1, 0.0);
+    for(int i = 0; i < n; i++){
+        prefixSum[i+1] = prefixSum[i] + (nums[i] - mid);
+    }
+        double minPrev = 0.0;
+        for(int i = k; i < n; i++) {
+            minPrev = min(minPrev, prefix[i-k]);
+            if(prefixSum[i] - minPrev >= 0)
+                return true;
+        }
+        return false;
+    };
+
+    while (R  - L > eps) {
+        double mid = L + (R - L)/2;
+        if(feasible(mid))
+            L = mid;
+        else 
+            R - mid;
+    }
+    return L
+}
+
+
+Longest Substring Without Repeating Characters (LeetCode #3)
+https://leetcode.com/problems/longest-substring-without-repeating-characters/description/
+
+int lengthOfLongestSubstring(string s) {
+    vector<int> indexMap(257, -1);
+    int left = 0, right = 0, n = s.length();
+    for(right = 0; right < n ; right++){
+        char ch = s[right];
+        if(indexMap[ch] >= 0) {
+            left = max(left, indexMap[ch]+1);
+        }
+        maxLen = max(maxLen, right - left +1);
+        indexMap[ch] = right;
+    }
+}
+Minimum Window Substring (LeetCode #76)
+https://leetcode.com/problems/minimum-window-substring/description/
+string minWindow(string s, string t) {
+    if(s.length() < t.length())
+        return "";
+    vector<int> tmap[257, 0];
+    for(auto& ch: t){
+        tmap[ch]++;
+    }
+
+    int slen = s.length(), required =t.length();
+    int count = 0, left = 0, right = 0;
+    int minLen = INT_MAX;
+    for(right = 0; right < slen; right++) {
+        char ch = s[right];
+        if(tmap[ch] > 0)
+            required--;
+        tmap[ch]--;
+        while(required == 0) {
+            if(minLen > (right - left +1)) {
+                minLen = right -left +1;
+                start = left;
+            }
+            char rm = s[left];
+            tmap[rm]++;
+            if(tmap[rm] > 0)
+                required++;
+            left++;
+        }
+    }
+    return minLen == INT_MAX ? "" : s.substr(start, minLen);
+}
+
+-----------------------------------------------------
+4. Fast & Slow Pointers
+Linked List Cycle (LeetCode #141)
+bool hasCycle(ListNode *head) {
+    if(!head)   return false;
+    ListNode *slow = head, *fast = head;
+    while(fast and fast->next) {
+        slow = slow->next;
+        fast = fast->next->next;
+        if(slow == fast)
+            return true;
+    }
+    return false;
+}
+
+Happy Number (LeetCode #202)
+
+Find the Duplicate Number (LeetCode #287)
+class Solution {
+public:
+    int findDuplicate(vector<int>& nums) {
+        int dup = -1;
+        for(int i = 0; i < nums.size(); i++) {
+            int curr = abs(nums[i]);
+            if(nums[curr] < 0) {
+                dup = curr;
+                break;
+            }
+            nums[curr] *= -1;
+        }
+        for(auto& num: nums)
+            num = abs(num);
+        return dup;
+    }
+    int findDuplicate(vector<int>& nums) {
+        int slow = 0, fast = 0;
+        do {
+            slow = nums[slow];
+            fast = nums[nums[fast]];
+        } while(slow != fast);
+        int slow1 = 0;
+        while(slow != slow1) {
+            slow = nums[slow];
+            slow1 = nums[slow1];
+        }
+        return slow;
+    }
+    int findDuplicate(vector<int>& nums) {
+        int low  = 1, high = nums.size();
+        int dup = -1;
+
+        auto countSmallOrEqual = [&](int cur) ->int {
+            int count = 0;
+            for(autu &num: nums) {
+                count += num <= cur ? 1 : 0;
+            }
+            return count;
+        };
+
+        while(low <= high) {
+            int cur = low + (high - low)/2;
+            if(countSmallOrEqual(mid) > cur) {
+                dup = cur;
+                high = cur -1;
+            } else {
+                low = cur+1;
+            }
+        }
+        return dup;
+    }
+};
+
+--------------------------
+5. LinkedList In-place Reversal
+Reverse Linked List (LeetCode #206)
+class Solution {
+public:
+    ListNode* reverseList(ListNode* head) {
+        if(!head)   return nullptr;
+        ListNode *cur = head, *prev = nullptr;
+        while(cur){
+            ListNode *nextNode = cur->next;
+            cur->next = prev;
+            prev = cur;
+            cur = nextNode;
+        }
+        return prev;
+    }
+};
+Reverse Linked List II (LeetCode #92)
+ListNode* reverseBetween(ListNode* head, int left, int right) {
+    if(!head || left == right)
+        return head;
+    ListNode *prev = nullptr, *curr = head;
+    for(int i = 1; i < left; i++)
+    {
+        prev = curr;
+        curr = curr->next;
+    }
+
+    ListNode* connection = prev;
+    ListNode *tail = curr;
+
+    ListNode *sublistPrev = nullptr;
+    for(int i = 0; i < right - left; i++){
+        ListNode *nextNode = curr->next;
+        curr->next = sublistPrev;
+        sublistPrev = curr;
+        curr = nextNode;
+    }
+
+    if(connection)
+        connection->next = sublistPrev;
+    else
+        head = sublistPrev;
+    tail->next = curr;
+    retuern head
+
+}
+Swap Nodes in Pairs (LeetCode #24)
+ListNode* swapPairs(ListNode* head) {
+    if(!head || !head->next)
+        return head;
+    ListNode *curr = head, *prev = nullptr;
+    ListNode *newHead =  nullptr;
+    while(curr && curr->next) {
+        ListNode *one = curr, *two = curr->next;
+        curr = two->next;
+        one->next = curr;
+        two->next = one;
+        if(!newHead)
+            newHead = two;
+    }
+    return newHead;
+}
+
+25. Reverse Nodes in k-Group
+
+ListNode* reverseKGroup(ListNode* head, int k) {
+    ListNode *curr = head;
+    if(!head)   return nullptr;
+    ListNode *newHead = nullptr, *tail = nullptr;
+
+    auto reverseList = [&](ListNode *head, int k) -> ListNode* {
+        ListNode *prev = nullptr;
+        ListNode *curr = head;
+        int count = 0;
+        while(curr and count < k) {
+            ListNode *nextNode = curr->next;
+            curr->next = prev;
+            prev = curr;
+            curr = nextNode;
+            count++;
+        }
+        return prev;
+    };
+
+    while(head) {
+        ListNode *current = head;
+        int count = 0;
+        while(current && count < k) {
+            current = current->next;
+            count++;
+        }
+        if(count == k ) {
+            ListNode *revList = reverseList(head, k);
+            if(!newHead)
+                newHead = revList;
+            if(tail)
+                tail->next = revList;
+            tail = head;
+            head = current;
+        }
+    }
+    if(tail)
+        tail->next = current;
+    return newHead;
+}
+
+---------------------------
+6. Monotonic Stack
+Next Greater Element I (LeetCode #496)
+vector<int> nextGreaterElement(vector<int>& nums1, vector<int>& nums2) {
+    unordered_map<int,int> ngeMap;
+    stack<int> st;
+    int n = nums2.size();
+    for(int i = n - `; i i >=0; i--) {
+        while(!st.empty() and nums2[st.top()] <= nums2[i])
+            st.pop();
+        if(!st.empty())
+            nge[nums2[i]] = nums2[st.top()];
+        st.push(i);
+    }
+    vector<int> result;
+    for(auto& num: nums1){
+        if(nge.count(num) > 0)
+            result.push_back(ngeMap[num]);
+        else
+            result.push_back(-1);
+    }
+}
+Daily Temperatures (LeetCode #739)
+
+class Solution {
+public:
+    vector<int> dailyTemperatures(vector<int>& temp) {
+        int n = temp.size();
+        vector<int> res(n, 0);
+        stack<int> st;
+        for(int i = 0; i < n; i++) {
+            while(!st.empty() and temp[st.top()] < temp[i]) {
+                int index = st.top(); st.pop();
+                res[index] = i - index;
+            }
+            st.push(i);
+        }
+        return res;
+    }
+};
+
+Largest Rectangle in Histogram (LeetCode #84)
+int largestRectangleArea(vector<int>& heights) {
+    heights.push_back(0);
+
+    int n = heights.size(), maxArea = 0;
+    stack<int> st;
+    for(int i = 0; i < n; i++) {
+        while(!st.empty() && heights[st.top()] > heights[i]) {
+            int index = st.top(); st.pop();
+            int left = st.empty() ? -1 : st.top();
+            int width = i - left -1;
+            maxArea = max(maxArea, heights[index] * width);
+        }
+        st.push(i)
+    }
+    retunr maxArea;
+}
+
+85. Maximal Rectangle
+https://leetcode.com/problems/maximal-rectangle/description/
+int maximalRectangle(vector<vector<char>>& matrix) {
+    int rows = matrix.size(), cols = matrix[0].size();
+    // Base cases
+
+
+    auto  histRowArea = [&](vector<int> &height) -> int {
+        height.push_back(0);
+        stack<int> st;
+        int area = INT_MIN;
+        int n = height.size();
+        for(int i = 0; i < n; i++) {
+            while(!st.empty() && height[st.top()] > height[i]) {
+                int colIndex = st.top(); st.pop();
+                int width = st.empty() ? i : (i - st.top() - 1);
+                area = max(area, height * width);
+            }
+            st.push(i);
+        }
+
+        height.pop_back();
+        return area;
+    }
+    vector<int> height(cols, 0);
+    height = matrix[0];
+    int maxArea = INT_MIN;
+    for(int i = 1; i < rows; i++) {
+        for(int j = 0; j < cols; j++) {
+            heights[j] = matrix[i][j] == '0' ? 0 : height[j] + 1;
+        }
+        maxArea = max(maxArea, histRowArea(height));
+    }
+    return maxArea == INT_MIN ? -1 : maxArea;
+}
+
+-------------------
+7. Top ‘K’ Elements
+int findKthLargest(vector<int>& nums, int k) {
+    priority_queue<int, vector<int>, greater<int>> minPQ;
+    for(auto& num : nums)
+    {
+        minPQ.push(num);
+        if(minPQ.size() > k)
+            minPQ.pop();
+    }
+    return minPQ.size() == k : minPQ.top() : -1;
+}
+
+int findKthLargest(vector<int>& nums, int k) {
+    int n = nums.size();
+    auto quickselect(vector<int> nums, int k) {
+        int n = nums.size()
+        int pivot = nums[rand() % n];
+        vector<int> left, right, mid;
+        for(int i = 0; i < n; i++) {
+            if(nums[i] > pivot)
+                left.push_back(nums[i]);
+            else if(nums[i] < pivot)
+                right.push_back(nums[i]);
+            else
+                mid.push_back(nums[i]);
+        }
+        if(left.size() >= k)
+            return quickselect(left, k);
+        else if( left.size() + mid.size() < k)
+            return quickselect(right, k - (left.size() + mid.size()));
+        return pivot;
+    }
+    return quickselect(nums, k);
+}
+
+230. Kth Smallest Element in a BST
+int kthSmallest(TreeNode* root, int k) {
+    if(!root)
+        return -1;
+    auto inorder = [&](TreeNode *root) ->int {
+        if(!root) -1;
+        int val = inorder(root->left);
+        if(k == 0)
+            return val;
+        k--;
+        if(k == 0)
+            return root->val;
+        return inorder(root->right);
+    };
+    return inorder(root);
+}
+------------------
+interval
+https://leetcode.com/problems/non-overlapping-intervals/description/
+int eraseOverlapIntervals(vector<vector<int>>& intervals) {
+    sort(intervals.begin(), intervals.end, [&](const auto &a, const auto &b) {
+        return a[1] < b[1];
+    });
+    int prevEnd = intervals[0][1];
+    int count = 0;
+    for(int i = 1; i < intervals.size(); i++) {
+        if( intervals[i][0] >= prevEnd)
+            prevEnd = intervals[i][1];
+        else{
+            count++;
+            prevEnd = min(prevEnd. intervals[i][1]);
+        }
+    }
+    return count;
+}
+
+bool searchMatrix(vector<vector<int>>& matrix, int target) {
+    int rows = matrix.size(), cols = matrix[0].size();
+
+    auto  helper = [&](int left, int up, int right, int bottom)->int {
+        if(left > right || up > bottom)
+            return false;
+        if(target < matrix[up][left] || target > matrix[bottom][right])
+            return false;
+        int mid = left + (right - left)/2;
+        int row = up;
+        while(row < bottom && matrix[row][mid] <= target) {
+            if(matrix[row][mid] == target)
+                return true;
+            row++;
+        }
+        return helper(left, row, mid -1, bottom) || helper(mid+1, up, right, row -1);
+    };
+    return helper(0,0, rows, cols);
+}
+
+------------------------------------------------
+backtrack
+vector<vector<string>> solveNQueens(int n) {
+    vector<vector<string>> ans;
+    vector<string> board(n, string(n, '.'));
+    vector<bool> col(n, false), diag(2*n-1), antiDiag(2*n-1);
+
+    auto backtrack = [&](int row) {
+        if(row == n) {
+            ans.push_back(board);
+            return;
+        }
+        for(int col = 0; col < n; col++) {
+            if(cols[col] || diag[row+col] || antiDiag[row-col+n+1]))
+                return;
+            board[row][col] = 'Q';
+            cols[col] = diag[row][col] = antiDiagprow-col+n-1] = true;
+            backtrack(row+1);
+            board[row][col] = '.';
+            cols[col] = diag[row][col] = antiDiag[row-col+n+1] = false;
+        }
+    };
+
+    backtrack(0);
+    return ans;
+}
+
+78. Subsets
+vector<vector<int>> subsets(vector<int>& nums) {
+    int n = nums.size();
+    vector<vector<int>> ans;
+    for(int mask = 0; mask < (1 << n); ++mask) {
+        vector<int> sub;
+        for(int i = 0; i < n; ++i){
+            if(mask & (1 <<i))
+                sub.push_back(nums[i]);
+        }
+        ans.push_back(sub);
+    }
+    return ans;
+}
+
+------------------------- DP
+int coinChange(vector<int>& coins, int amount) {
+    vector<int> dp(amount+1, INT_MAX);
+    
+    dp[0] = 0;
+    for(int a = 1; a <= amount; ++a) {
+        for(auto& coin : coins) {
+            if(a >= coin and dp[a-coin] != INT_MAX)
+                dp[a] = min(dp[a], 1+ dp[a-coin]);
+        }
+    }
+    return dp[amount] == INT_MAX ? -1 : dp[amount];
+}
+
+    bool canPartition(vector<int>& nums) {
+        int total = accumulate(nums.begin(), nums.end(), 0);
+        if(total & 1)   return false;
+        int findSum = total /2;
+        
+        auto dfs = [&](int i, int s) {
+            if(s == 0)
+                return true;
+            if(i == nums.size() or s < 0)
+                return false;
+            if(dp[i][s] != -1)
+                return dp[i][s] == 1? true: false;
+            bool res = dfs(i+1, s-[nums[i]]) || dfs(i+1, s);
+            return dp[i][s] = res;
+        };
+
+
+        auto partition [&]() {
+            vector<int> dp(findSum+1, false);
+            dp[0] = true;
+            for(s : findSum) {
+                for(int i = 0; i < nums.size(); i++)
+                    if(nums[i] < s and i - s >= 0){
+                        dp[i] = dp[i] || dp[i-s];
+                    }
+            }
+        };
+        return dfs(0, findSum);
+
+    }
+
+
+int rob(vector<int>& nums) {
+    int n = nums.size();
+    if(n == 0)  return 0;
+    if(n == 1)  return nums[0];
+    if(n == 2) = return max(nums[0], nums[1]);
+
+    auto helper = [&](int start, int end) -> int {
+
+        int prev = 0, curr = nums[start];
+        for(int i = start+1; i < end; ++i) {
+            int val = max(nums[2])
+        }
+
+        dp[i] = max(nums[i-1] + dp[i-2], dp[i-1])
+    };
+    return max(helper(0, n-2), helper(1, n-1));
+}

@@ -1,0 +1,279 @@
+This is a **Low-Level System Design (LLD) / High-Level Design (L5/L6)** question.
+
+You need to design a system that can handle:
+
+| Requirement                 | Scale                |
+| --------------------------- | -------------------- |
+| Status creation (text only) | **1B/day**           |
+| Searches                    | **10M searches/sec** |
+| Sorting by recency          | newest first         |
+| Storage duration            | **infinite**         |
+| Read heavy                  | extremely            |
+| Write heavy too             | 1B/day               |
+
+---
+
+# ✅ Core Design Decisions
+
+### 1. **Data Model**
+
+```
+Status {
+    statusId: UUID
+    userId: int64
+    text: string  (max ~632 chars like FB)
+    createdAt: epoch_ms
+}
+```
+
+---
+
+# ⚡ LLD Architecture
+
+```
+Clients → API Gateway → Status Service → Kafka → Storage + Indexing + Cache
+                         ↓ Search Service → Read from Cache / Search Index
+```
+
+---
+
+## 1. **Status Write Path (1B/day)**
+
+* Use **API Gateway** to accept writes.
+* Writes go to **Kafka partitioned by userId** (to avoid overload on DB).
+* Consumers write to:
+
+  * **Cassandra / ScyllaDB** → primary infinite storage
+  * **Elasticsearch / OpenSearch** → search index
+  * **Redis caching layer** → recent 30–90 days for fast reads
+
+### Why Cassandra / Scylla?
+
+| Feature                      | Benefit                 |
+| ---------------------------- | ----------------------- |
+| Distributed, Write-Optimized | handles billions writes |
+| NoSQL, Schema flexible       | text blobs efficient    |
+| Infinite storage             | auto-scales             |
+| Fast partition scans         | per user fetch fast     |
+
+Sharding by:
+
+```
+Partition Key: userId
+Clustering Key: createdAt DESC
+```
+
+So recent statuses are always on top.
+
+---
+
+### Write throughput estimation:
+
+1B/day → ~11,600 writes/sec average, but peak expected ~10× → ~120k/sec
+(Cassandra/Scylla easily handles millions/sec)
+
+---
+
+## 2. **Search Path (10M/sec, sorted by recency)**
+
+### Search happens via search index:
+
+* **OpenSearch/Elasticsearch cluster**
+
+  * stores inverted index of text
+  * has timestamp field for sorting by recency
+
+### Queries/sec distribution:
+
+10M/sec is WAY too high for DB or search index alone.
+
+So introduce multi-tier optimization:
+
+| Layer                         | Purpose                                               |
+| ----------------------------- | ----------------------------------------------------- |
+| **CDN + API edge caching**    | cache popular queries (“happy”, “good morning”, etc.) |
+| **Redis/Memcache**            | hot search query results cached sorted by recency     |
+| **Search Index (OpenSearch)** | full text search + sort                               |
+| **Cassandra fallback**        | only if index/cache miss                              |
+
+### Target performance per layer:
+
+* 40% served by **Edge Cache/CDN**
+* 50% served by **Redis**
+* 9.9% served by **Search Index**
+* 0.1% fallback to DB
+
+This reduces search cluster load to manageable:
+
+```
+10M/sec × 10% ≈ 1M/sec to search engine cluster
+```
+
+Now it is doable using a big distributed OpenSearch cluster.
+
+---
+
+## 3. **Caching Strategy**
+
+### Key idea:
+
+Only cache **recent & hot searched data**.
+
+```
+Redis key: search:<query_text> → stores list<statusId> sorted by createdAt DESC
+TTL: 1hr or based on popularity
+```
+
+Also maintain **Recent feed cache per user**:
+
+```
+Redis key: user:<userId>:status → stores recent statuses sorted newest first
+```
+
+Without this, fetching from Scylla 10M/sec is impossible.
+
+---
+
+## 4. **Storage & Retention**
+
+| Component        | Retention                                                               |
+| ---------------- | ----------------------------------------------------------------------- |
+| Cassandra/Scylla | infinite                                                                |
+| OpenSearch       | keep full index but use **cold tier storage** for old data (S3/Glacier) |
+| Cache            | only recent 30–90 days                                                  |
+
+Infinite store is handled by DB + object storage archival.
+
+---
+
+## 5. **Search result sorting by recency**
+
+In OpenSearch query:
+
+```cpp
+{
+  "query": { "match": { "text": query } },
+  "sort": [{ "createdAt": "desc" }]
+}
+```
+
+This ensures **newest statuses first**.
+
+---
+
+# ✅ Service LLD (C++ Style Interfaces)
+
+### Status Service
+
+```cpp
+class IStatusService {
+public:
+    virtual string createStatus(int64_t userId, string text) = 0;
+    virtual ~IStatusService() {}
+};
+```
+
+### Search Service
+
+```cpp
+class ISearchService {
+public:
+    virtual vector<Status> search(string query, int limit = 20) = 0;
+    virtual ~ISearchService() {}
+};
+```
+
+---
+
+### Status Service Implementation (writes to Kafka)
+
+```cpp
+class StatusService : public IStatusService {
+public:
+    string createStatus(int64_t userId, string text) override {
+        string statusId = generateUUID();
+        long createdAt = getEpochMillis();
+
+        // Push to Kafka
+        kafkaProducer.send({
+            {"statusId", statusId},
+            {"userId", to_string(userId)},
+            {"text", text},
+            {"createdAt", to_string(createdAt)}
+        });
+
+        return statusId;
+    }
+};
+```
+
+---
+
+### Search Service Implementation (Cache → OpenSearch → DB)
+
+```cpp
+class SearchService : public ISearchService {
+public:
+    vector<Status> search(string query, int limit = 20) override {
+
+        // 1️⃣ Check Redis cache
+        if (cache.exists(query)) {
+            return cache.get(query);
+        }
+
+        // 2️⃣ Query OpenSearch
+        vector<Status> res = openSearchClient.search(query, limit, /*sort by*/ "createdAt:desc");
+
+        // 3️⃣ Cache result if hot
+        if (!res.empty()) {
+            cache.set(query, res, 3600); // 1 hour TTL
+        }
+
+        // 4️⃣ fallback (rare case)
+        if (res.empty()) {
+            res = scyllaClient.fetchByQuery(query, limit);
+        }
+
+        return res;
+    }
+};
+```
+
+---
+
+# ✅ Final Architecture Summary
+
+| Component                | Reason                          |
+| ------------------------ | ------------------------------- |
+| API Gateway              | Rate limiting, routing          |
+| Kafka                    | buffer 1B/day writes            |
+| Cassandra/ScyllaDB       | infinite distributed storage    |
+| OpenSearch               | full-text search + sorting      |
+| Redis/Memcache           | serve 90%+ reads                |
+| Object storage cold tier | archival for infinite retention |
+| Shard by userId and time | scalability                     |
+
+---
+
+# Interview Notes
+
+### Must say keywords
+
+✔ Read heavy system
+✔ Distributed index
+✔ Multi-tier caching
+✔ Time-sorted clustering
+✔ Infinite archival
+✔ Message queue for durability
+✔ Horizontal scaling everywhere
+
+---
+
+If you want, I can also provide:
+
+1. C++ executable simulation
+2. Capacity estimation breakdown
+3. Deployment diagram
+4. LLD class diagram
+
+Which one should I generate next?

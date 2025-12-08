@@ -1,0 +1,362 @@
+'''
+1415. Marketing/Campaign Email/Notifications Delivery System for Large Scale Marketing
+https://enginebogie.com/interview/experience/salesforce-principal-member-of-technical-staff/407
+High-Level Design (HLD)System DesignBackendHigh ScalabilityHigh AvailabilityDistributed SystemNotification SystemDatabasesMessage Queue
+Medium
+Design a system that sends campaign email to users when a sale or event is live. A single campaign may need to send up to 100k emails. Over time the system may run millions of campaigns. The system must deliver emails reliably and report success or failure for each message.
+
+Requirements:
+Accept campaign definitions that include sender details email content a recipient list send window and throttling rules.
+Deliver up to 100k emails per campaign while respecting provider rate limits and mailbox provider rules.
+Support millions of campaigns over time while keeping storage and cost reasonable.
+Report per message status delivered bounced deferred or blocked and expose simple metrics for campaign health.
+Handle retries backoff and bounce handling without blocking other campaigns.
+Allow scheduling campaigns for future times and support pause cancel and resume.
+Keep delivery scalable and maintain good inbox placement for marketing emails.
+'''
+
+# Marketing / Campaign Email Delivery System — L5/L6 Design
+
+Below is a production-ready design for a **large-scale marketing/campaign email delivery system** that sends campaigns (up to ~100k recipients per campaign; millions of campaigns over time), provides per-message delivery status, supports scheduling/pause/resume/cancel, obeys provider and mailbox rate limits, handles bounces/retries/backoff, and stays cost- and storage-efficient.
+
+I’ll cover: high-level architecture, data model, control & delivery flows, scaling & rate-limiting, retries & bounces, monitoring/metrics, storage/retention, deliverability best practices, failure modes & mitigation, and a suggested tech stack + capacity numbers.
+
+---
+
+# 1. High-level architecture
+
+```
+[Clients / UI / API] 
+      ↓
+[Campaign API Service] → [Auth/Validation] → [Campaign DB (metadata)]
+      ↓
+[Scheduler / Orchestrator]  (schedules jobs, pause/resume/cancel)
+      ↓
+[Campaign Worker Pool]  (fan-out & per-message enqueue)
+      ↓
+[Delivery Queue(s)]  (partitioned + prioritized)
+      ↓
+[Delivery Workers / Senders]  (throttled per provider & per-MX)
+      → [SMTP Providers / ESPs / In-house SMTP]
+      ↘
+       [Bounce Handler / Webhooks Listener] ← [Provider Webhooks]
+[Reporting Service / Aggregator] ← statuses
+[Monitoring / Alerts / Dashboard / Audit Logs]
+```
+
+Key building blocks:
+
+* **API + UI**: create/edit schedule campaigns, manage templates, recipient lists, throttles.
+* **Campaign DB**: stores campaign metadata (id, sender, throttling rules, schedule, status).
+* **Message Store**: append-only storage of per-message records and events (compact, cold storage for old).
+* **Scheduler / Orchestrator**: turns campaign schedule into "send jobs" and controls pause/resume/cancel.
+* **Delivery Queue(s)**: durable partitioned queues (e.g., Kafka, SQS, Pulsar) for messages to send.
+* **Delivery Workers**: long-running processes that read from queues and send messages, enforcing throttling and provider selection logic.
+* **Providers / ESPs**: integrations with 3rd-party ESPs or in-house SMTP clusters. Use multiple providers for HA and deliverability.
+* **Bounce & Feedback Handler**: receive provider webhooks, classify bounces, update statuses, and feed into suppression and retry logic.
+* **Reporting & Metrics**: real-time per-message status, campaign summaries, health metrics.
+
+---
+
+# 2. Data model (core fields)
+
+## Campaign (metadata)
+
+* campaign_id (UUID)
+* owner_id, project_id
+* from_email, from_name, reply_to
+* subject_template_id, body_template_id (support personalization tokens)
+* recipient_list_id (or dynamic query)
+* send_window: start_time, end_time
+* throttling_rules:
+
+  * sends_per_second_global
+  * sends_per_provider
+  * sends_per_mx_domain (per-recipient domain e.g., gmail.com)
+  * concurrency limits
+* retry_policy: max_attempts, backoff_strategy
+* tracking_settings: opens/clicks/track_links
+* state: DRAFT / SCHEDULED / RUNNING / PAUSED / CANCELLED / COMPLETED
+* created_at, updated_at
+
+## Recipient / Message record
+
+* message_id (UUID)
+* campaign_id
+* recipient_email
+* recipient_id (if known)
+* personalization_vars (JSON)
+* status: QUEUED / SENT / DELIVERED / BOUNCED / DEFERRED / BLOCKED / DROPPED
+* provider_id (which provider attempt used)
+* attempt_count, last_attempt_at
+* last_status_detail (text)
+* created_at, updated_at
+
+## Provider (per ESP / SMTP pool)
+
+* provider_id, name, region
+* api_keys, endpoints, webhook_urls
+* sending_ips (if owned)
+* open_rate, bounce_rate, complaint_rate (for routing decisions)
+
+---
+
+# 3. Control & delivery flows
+
+### Campaign creation
+
+1. User uploads campaign + recipient list (CSV, segments, dynamic query).
+2. Validation: dedupe recipients, validate email formats, check suppression list (global and per-customer).
+3. Save campaign metadata + persist recipients in Message Store (or generate message records on scheduling).
+
+   * Option A: **Pre-expand** recipients at scheduling time → create N message records. Good for per-message tracking but more storage.
+   * Option B: **Lazy expand** during send → store recipient list reference and generate messages on-the-fly. Saves storage but more complex retry/visibility.
+     *Recommendation: Pre-expand for campaigns ≤100k for simple per-message reporting and simpler pause/resume mechanics.*
+
+### Scheduling / Orchestration
+
+* Scheduler creates a send job at start_time (or immediately). It slices the campaign into **batches/shards** (e.g., 1k–10k message chunks) to enable parallel workers and pause/resume.
+* Each batch is enqueued into the **Delivery Queue** with metadata: campaign_id, batch_id, rate-limit keys (global/provider/domain quotas).
+
+### Delivery workers
+
+* Pull batch, build messages (apply templates/personalization), choose provider according to routing logic and provider quotas.
+* **Throttling enforcement** (critical): workers consult a distributed rate limiter (token-bucket) per:
+
+  * provider (e.g., 1000 RPS)
+  * MX domain (e.g., gmail.com 100 RPS)
+  * global account-level limit
+* Workers attempt send via provider API or SMTP. On success, update message.status = SENT and record provider_message_id.
+* On soft failure (rate-limited / transient): retry with exponential backoff up to configured max_attempts.
+* On hard failure (permanent bounce): mark BOUNCED and feed to suppression.
+
+### Bounce & feedback collection
+
+* Providers call your **webhook endpoint** for delivered/bounced/complaint events. The Bounce Handler:
+
+  * maps provider_message_id → message_id
+  * updates status (DELIVERED, BOUNCED type, COMPLAINT)
+  * applies bounce classification (hard vs soft)
+  * updates suppression list for hard bounces and complaint events
+  * feeds metrics / campaign health
+
+### Pause / Cancel / Resume
+
+* Pause: scheduler marks campaign state PAUSED; orchestrator removes pending batches or re-queues them with a paused flag. Delivery workers skip paused campaign batches.
+* Cancel: similar, but mark CANCELLED and optionally send cancellation events.
+* Resume: scheduler restarts sending batches from remaining queued messages.
+
+---
+
+# 4. Rate limiting, throttling, and provider selection
+
+Critical requirement: obey provider limits and mailbox rules (e.g., Gmail throttles or groups messages to same IP).
+
+### Rate limiting mechanics
+
+* Use **distributed token-buckets** (Redis-based or service like Envoy rate-limiter) keyed by:
+
+  * account.global
+  * provider_id
+  * mx_domain (extracted from recipient email)
+  * from_ip (if you own sending IPs)
+* Workers request tokens before sending; if not available, they wait or requeue batch.
+
+### Provider routing / IP warmup
+
+* Use multiple providers or multiple sending IP pools.
+* Route high-reputation domains (gmail, yahoo) via different pools to avoid triggering rate limits.
+* Implement **IP warmup**: gradually increase throughput on newly-provisioned IPs.
+* Auto-throttle per-MX: maintain historic rejection/defer rates per MX domain; reduce rate if defers spike.
+
+### Provider failover
+
+* If a provider returns persistent errors or high bounce rates, shift traffic away using circuit-breaker patterns and re-route to alternate providers.
+
+---
+
+# 5. Retries, backoff & error handling
+
+### Idempotency
+
+* Ensure idempotent sends per message (store message_id and provider_message_id); providers may retry webhooks so updates must be idempotent.
+
+### Retry policy
+
+* Configure separate policies for transient vs permanent failures:
+
+  * Transient (5xx, rate-limit, timeout): exponential backoff (e.g., 1m, 5m, 15m, 1h) up to max_attempts.
+  * Soft bounce (mailbox full): apply limited retries.
+  * Hard bounce (invalid email): mark BOUNCED and add to suppression list; no more retries.
+
+### Throttle-aware retries
+
+* Retries must also respect provider/mx rate limiters; they should not starve other campaigns. Use priority queues if necessary (e.g., low-priority retries behind fresh sends).
+
+### Non-blocking behavior
+
+* Retrying messages must not block other campaigns: use separate retry queues with lower priority and separate worker pools limited in concurrency.
+
+---
+
+# 6. Bounce handling, suppression & list hygiene
+
+* Classify bounces:
+
+  * Permanent (5xx with permanent reason) → immediate suppression
+  * Transient (4xx) → retries with backoff
+  * Complaint (spam report) → immediate suppression + alert
+* Maintain **global suppression list** (all-time) and **campaign-level suppression** (temporary).
+* Provide APIs for customers to manage suppression lists and to check recipients before sending.
+
+---
+
+# 7. Reporting & metrics
+
+Per-message reporting:
+
+* status changes stream into Reporting Service (near real-time).
+* Expose per-message view: timestamps, provider, attempts, final status and bounce reason.
+
+Campaign-level metrics:
+
+* sends, delivered, opens, clicks, bounces, complaints, deferred, blocked
+* delivery rate, success rate, rolling 24h performance
+
+Monitoring & alerts:
+
+* alert on high bounce rates, provider errors, webhook delays, growing retry queue depth
+* maintain SLA dashboards (P99 sending latency, throughput, queue depth)
+
+Retention:
+
+* Detailed per-message events: keep recent (e.g., 90 days) hot data in fast DB (Cassandra/Scylla/Timescale), then archive older events to cold storage (S3) with compact summary retained for long-term analytics.
+
+---
+
+# 8. Storage, scaling & cost control
+
+### Storage strategy
+
+* **Message records**: Keep for necessary retention window (e.g., 90–365 days) in a compressed NoSQL store (Cassandra / Scylla). After expiry, archive to S3 (compact logs) or delete per customer policy.
+* **Event logs & webhooks**: Append-only to cold storage; use partitioning for efficient queries.
+* **Templates & metadata**: Relational DB or NoSQL.
+
+### Cost-related design
+
+* Avoid indefinite per-message storage for all campaigns — instead:
+
+  * Keep **primary** per-message details for N days (e.g., 90 days).
+  * Keep **aggregated metrics** indefinitely (daily aggregates).
+  * Archive full detail to S3/Glacier on policy.
+* Use compression, partitioning (time-based), and TTLs to control data growth.
+
+---
+
+# 9. Deliverability & inbox placement
+
+To maintain good inbox placement at scale:
+
+* Use **reputable ESPs** and/or rotate sending IPs carefully.
+* Implement **DKIM, SPF, DMARC** for all sending domains, and support subdomain delegation for customers.
+* Enforce **list quality**: validate emails at upload, encourage double opt-in, detect high bounce lists.
+* Implement **engagement-based routing**: route campaigns with higher engagement through preferred IPs; throttle low-engagement senders.
+* Implement **unsubscribe** and **list-unsubscribe headers**.
+* Maintain complaint handling and suppression in near-real-time.
+
+---
+
+# 10. Security, privacy & compliance
+
+* Encrypt PII at rest; ensure access controls for campaign data.
+* Rate limit and validate uploaded recipient lists to prevent abuse (spam).
+* Support GDPR/CCPA: deletion and data export APIs, retention controls.
+* Audit logs for sends and admin actions.
+* Protect webhooks endpoints and verify provider signatures.
+
+---
+
+# 11. Failure modes & mitigation
+
+* **Queue backlog**: autoscale worker pool; prioritize new campaigns vs retries.
+* **Provider outage**: circuit-breaker and failover to alternate provider; inform user.
+* **Surge (hot event)**: scheduler can cap concurrent campaigns per account; provide queue position to users.
+* **High bounce spike**: automatic pause of affected campaigns, alert deliverability team.
+* **Webhook lag**: reconcile with provider via periodic delivery fetch API.
+
+---
+
+# 12. Tech stack (suggested)
+
+* API / Orchestrator: Go / Java / Node (stateless)
+* Message queue: Kafka / Pulsar for high throughput
+* Delivery queues: Kafka topic per-priority or SQS FIFO for ordering
+* Distributed rate limiter: Redis + Lua or Hashicorp Consul with token-bucket; or use Envoy rate-limit service
+* Message store: Cassandra / ScyllaDB for per-message state (time-series partitioning)
+* Archive: S3 + Glacier
+* Search/reporting: ClickHouse / Druid for analytics; Elasticsearch for search
+* Webhooks/Providers: REST endpoints or SMTP clients (Haraka / postfix / custom)
+* Monitoring: Prometheus + Grafana, ELK/Fluentd for logs
+* Metrics & alerts: PagerDuty integration
+
+---
+
+# 13. Capacity & cost estimates (example numbers)
+
+**Example campaign scale**: 100k emails per campaign.
+
+If you need to handle 100 campaigns concurrently → 10M emails in-flight.
+
+* Delivery QPS: if campaigns are sent over 1 hour: 10M / 3600 ≈ 2778 qps sustained.
+* Providers: use 3 providers each at 1k rps capacity.
+* Storage: message record ~300 bytes → 10M * 300B ≈ 3GB for that window; 100M campaigns over time requires archiving.
+
+Design for bursts: autoscale workers and ensure queues partitioning.
+
+---
+
+# 14. API examples (simple)
+
+**Create campaign**
+
+```
+POST /v1/campaigns
+{
+  "from":"marketing@example.com",
+  "subject":"Black Friday!",
+  "template_id":"tmpl_123",
+  "recipient_list_id":"list_987",
+  "send_window": {"start":"2025-12-01T10:00Z", "end":"2025-12-01T16:00Z"},
+  "throttle": {"global_rps": 1000, "per_mx_rps": 100}
+}
+```
+
+**Campaign control**
+
+```
+POST /v1/campaigns/:id/pause
+POST /v1/campaigns/:id/resume
+POST /v1/campaigns/:id/cancel
+GET  /v1/campaigns/:id/status
+GET  /v1/campaigns/:id/messages?status=BOUNCED
+```
+
+---
+
+# 15. Trade-offs & alternatives
+
+* **Pre-expand messages**: simpler reporting and pause/resume; higher storage. Good for ≤100k/campaign.
+* **Lazy generation**: saves storage but makes tracking and pause/resume complex.
+* **3rd-party ESP vs in-house**: ESPs reduce engineering but reduce fine-grained control over deliverability and costs at scale. A hybrid approach (use multiple ESPs + in-house SMTP) often works best.
+* **Queue model**: Kafka gives throughput and replay; SQS simpler but costlier at scale.
+
+---
+
+# 16. Next steps / Deliverables I can provide
+
+* Detailed component diagram + sequence diagrams for: send flow, retry flow, bounce handling.
+* Data schema (Cassandra tables) and sample queries.
+* Concrete capacity planning: how many workers, Kafka partitions, Redis instances.
+* A small PoC architecture (docker-compose) to simulate scheduling / sending / webhook flow.
+
+Which of these would you like next? I can produce the sequence diagrams and a Cassandra table schema right away.

@@ -53,5 +53,33 @@ def checkValidString(s: str) -> bool:
         if maxOpen < 0:
             return False  # too many open
         if minOpen < 0:
-            return False
+            minOpen = 0
     return minOpen == 0
+
+def checkValidString(s: str) -> bool:
+    stack_open = []  # indices of '('
+    stack_star = []  # indices of '*'
+
+    # 1) First scan: match ')'
+    for i, ch in enumerate(s):
+        if ch == '(':
+            stack_open.append(i)
+        elif ch == '*':
+            stack_star.append(i)
+        else:  # ')'
+            if stack_open:
+                stack_open.pop()
+            elif stack_star:
+                stack_star.pop()
+            else:
+                return False
+
+    # 2) Second scan: match remaining '(' with later '*'
+    while stack_open and stack_star:
+        if stack_open[-1] < stack_star[-1]:
+            stack_open.pop()
+            stack_star.pop()
+        else:
+            return False  # '*' is before '(' → can't match
+
+    return len(stack_open) == 0

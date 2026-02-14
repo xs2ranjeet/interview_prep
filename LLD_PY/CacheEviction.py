@@ -76,4 +76,5 @@ class LRUEvictionPolicy(EvictionPolicy):
 
 
 class CacheEngine:
-    def __init__(self, storage: Storage, eviciton)
+    def __init__(self, storage: Storage, eviciton):
+        pass
